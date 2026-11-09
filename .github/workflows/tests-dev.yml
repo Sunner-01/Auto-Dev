@@ -1,0 +1,29 @@
+name: Pruebas automatizadas en dev
+
+on:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    name: Pruebas unitarias, integracion y API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v5
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: python -m pip install -r requirements.txt
+
+      - name: Ejecutar pruebas
+        run: python -m pytest -q tests
