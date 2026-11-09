@@ -1,11 +1,18 @@
 from fastapi.testclient import TestClient
 from app.main import app
+from app import crud
 import time
 import json
+import pytest
 
 client = TestClient(app)
-# NO USAMOS setup_function aquí, ya que queremos simular un entorno persistente
-# y que las pruebas anteriores (Integración) hayan modificado la DB real (db.json)
+
+
+@pytest.fixture(autouse=True)
+def isolated_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(crud, "DB_FILE", str(tmp_path / "db.json"))
+
+
 def test_e2e_full_category_lifecycle():
     """
     Simula un flujo completo del usuario (End-to-End):
@@ -38,3 +45,31 @@ def test_e2e_full_category_lifecycle():
     # E2E Assertions:
     assert len(final_list) == initial_count + 1
     assert any(c['nombre'] == cat_name for c in final_list)
+
+
+def test_e2e_create_category_then_product():
+    categoria = client.post("/categorias", params={"nombre": "Oficina"})
+    assert categoria.status_code == 200
+
+    producto = client.post("/productos", params={
+        "nombre": "Cuaderno", "categoria_id": categoria.json()["id"]
+    })
+    assert producto.status_code == 200
+    assert producto.json()["nombre"] == "Cuaderno"
+    assert producto.json()["categoria_id"] == categoria.json()["id"]
+    assert categoria.json() in client.get("/categorias").json()
+
+
+def test_e2e_recover_from_invalid_product_category():
+    rejected = client.post("/productos", params={"nombre": "Lápiz", "categoria_id": 999})
+    assert rejected.status_code == 404
+
+    categoria = client.post("/categorias", params={"nombre": "Papelería"})
+    assert categoria.status_code == 200
+    accepted = client.post("/productos", params={
+        "nombre": "Lápiz", "categoria_id": categoria.json()["id"]
+    })
+
+    assert accepted.status_code == 200
+    assert accepted.json()["categoria_id"] == categoria.json()["id"]
+    assert len(client.get("/categorias").json()) == 1

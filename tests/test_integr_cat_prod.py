@@ -2,11 +2,13 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app import crud
 import json
+import pytest
 
 client = TestClient(app)
 
-# Restaura el estado de la DB al estado original después de cada prueba
-def setup_function():
+@pytest.fixture(autouse=True)
+def isolated_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(crud, "DB_FILE", str(tmp_path / "db.json"))
     data_inicial = {"categorias": [{"id": 1, "nombre": "Electrónica"}],
                     "productos": [{"id": 101, "nombre": "Laptop", "categoria_id": 1}]}
     crud._save_db(data_inicial)
@@ -41,3 +43,23 @@ def test_integration_create_cat_and_product():
     # Assertions finales
     assert producto_creado["nombre"] == "Tijeras"
     assert producto_creado["categoria_id"] == categoria_id
+
+
+def test_integration_unknown_category_returns_404_without_writing():
+    before = crud._load_db()
+
+    response = client.post("/productos", params={"nombre": "Sin categoría", "categoria_id": 999})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Categoría no encontrada"}
+    assert crud._load_db() == before
+
+
+def test_integration_product_ids_increment_and_persist():
+    first = client.post("/productos", params={"nombre": "Mouse", "categoria_id": 1})
+    second = client.post("/productos", params={"nombre": "Teclado", "categoria_id": 1})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert [first.json()["id"], second.json()["id"]] == [102, 103]
+    assert crud._load_db()["productos"][-2:] == [first.json(), second.json()]
